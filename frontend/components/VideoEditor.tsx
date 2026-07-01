@@ -5,6 +5,9 @@ import { UploadCloud } from "lucide-react";
 import Toolbar from "./Toolbar";
 import PreviewPlayer from "./PreviewPlayer";
 import Timeline from "./Timeline";
+import LeftSidebar from "./LeftSidebar";
+import LeftPanel from "./LeftPanel";
+import RightPropertiesPanel from "./RightPropertiesPanel";
 import { Clip, TextOverlay } from "@/lib/types";
 
 let clipIdCounter = 0;
@@ -331,84 +334,86 @@ export default function VideoEditor() {
   const selectedTextContent = textOverlays.find(t => t.id === selectedTextId)?.content;
 
   return (
-    <div className="flex h-screen flex-col bg-bg text-text">
+    <div className="flex h-screen flex-col bg-[#111111] text-text overflow-hidden">
       <Toolbar
         fileName={fileName}
-        hasVideo={!!videoUrl}
         onUploadClick={() => fileInputRef.current?.click()}
         onExportClick={handleExport}
-        onAddTextClick={() => handleAddText()}
-        selectedTextContent={selectedTextContent}
-        onSelectedTextChange={(content) => {
-          if (selectedTextId) {
-            setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, content } : t));
-          }
-        }}
+        hasVideo={!!videoUrl}
       />
-
       <input
-        ref={fileInputRef}
         type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
         accept="video/*"
         className="hidden"
-        onChange={handleFileChange}
       />
-
       {videoUrl ? (
-        <>
-          <PreviewPlayer
-            videoRef={videoRef}
-            videoUrl={videoUrl}
-            isPlaying={isPlaying}
-            currentTime={currentTime}
-            duration={duration}
-            canSplit={canSplit}
-            onTogglePlay={togglePlay}
-            onSplit={handleSplit}
-            textOverlays={textOverlays}
-            setTextOverlays={setTextOverlays}
-          />
-          {/* Hook up playback + metadata events */}
-          <VideoEventBridge
-            videoRef={videoRef}
-            onLoadedMetadata={handleLoadedMetadata}
-            onTimeUpdate={handleTimeUpdate}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-          />
-
-          <Timeline
-            duration={duration}
-            currentTime={currentTime}
-            clips={clips}
-            selectedClipId={selectedClipId}
-            textOverlays={textOverlays}
-            selectedTextId={selectedTextId}
-            textLayerCount={textLayerCount}
-            onSeek={handleSeek}
-            onSelectClip={setSelectedClipId}
-            onDeleteClip={handleDeleteClip}
-            onReorderClips={handleReorderClips}
-            onSelectText={setSelectedTextId}
-            onDeleteText={(id) => setTextOverlays(prev => prev.filter(t => t.id !== id))}
-            onUpdateTextTiming={handleUpdateTextTiming}
-            onMoveTextLayer={handleMoveTextLayer}
-            onAddTextLayer={handleAddTextLayer}
-            onAddTextToLayer={(layerIndex) => handleAddText(layerIndex)}
-            zoomLevel={zoomLevel}
-            onZoomChange={setZoomLevel}
-          />
-
-          {isExporting && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
-              <div className="flex flex-col items-center gap-4">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
-                <p className="text-[15px] font-medium text-text">Exporting video in real-time...</p>
-                <p className="text-[13px] text-muted">Please wait, do not close the window.</p>
+        <div className="flex flex-1 overflow-hidden">
+          <LeftSidebar />
+          <LeftPanel onAddTextClick={() => handleAddText()} hasVideo={!!videoUrl} />
+          
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex flex-1 overflow-hidden">
+              <div className="flex-1 relative bg-black flex flex-col justify-center border-b border-border/50">
+                <PreviewPlayer
+                  videoUrl={videoUrl}
+                  videoRef={videoRef}
+                  isPlaying={isPlaying}
+                  onTogglePlay={togglePlay}
+                  currentTime={currentTime}
+                  duration={duration}
+                  canSplit={canSplit}
+                  onSplit={handleSplit}
+                  textOverlays={textOverlays}
+                  setTextOverlays={setTextOverlays}
+                  selectedTextId={selectedTextId}
+                />
               </div>
+              <RightPropertiesPanel isItemSelected={!!selectedTextId} />
             </div>
-          )}
-        </>
+
+            <VideoEventBridge
+              videoRef={videoRef}
+              onLoadedMetadata={handleLoadedMetadata}
+              onTimeUpdate={handleTimeUpdate}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+            />
+
+            <Timeline
+              duration={duration}
+              currentTime={currentTime}
+              clips={clips}
+              selectedClipId={selectedClipId}
+              textOverlays={textOverlays}
+              selectedTextId={selectedTextId}
+              textLayerCount={textLayerCount}
+              onSeek={handleSeek}
+              onSelectClip={setSelectedClipId}
+              onDeleteClip={handleDeleteClip}
+              onReorderClips={handleReorderClips}
+              onSelectText={setSelectedTextId}
+              onDeleteText={(id) => setTextOverlays(prev => prev.filter(t => t.id !== id))}
+              onUpdateTextTiming={handleUpdateTextTiming}
+              onMoveTextLayer={handleMoveTextLayer}
+              onAddTextLayer={handleAddTextLayer}
+              onAddTextToLayer={(layerIndex) => handleAddText(layerIndex)}
+              zoomLevel={zoomLevel}
+              onZoomChange={setZoomLevel}
+            />
+
+            {isExporting && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+                  <p className="text-[15px] font-medium text-text">Exporting video in real-time...</p>
+                  <p className="text-[13px] text-muted">Please wait, do not close the window.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       ) : (
         <EmptyState onBrowse={() => fileInputRef.current?.click()} />
       )}
