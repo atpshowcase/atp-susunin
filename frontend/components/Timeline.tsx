@@ -22,13 +22,15 @@ interface TimelineProps {
   onAddTextLayer?: () => void;
   onAddTextToLayer?: (layerIndex: number) => void;
   onMoveTextLayer?: (id: string, layerIndex: number) => void;
+  zoomLevel: number;
+  onZoomChange: (zoom: number) => void;
 }
 
-function buildTicks(duration: number) {
+function buildTicks(duration: number, zoomLevel: number) {
   if (!duration) return [];
-  // Aim for roughly 6-10 ticks regardless of length
-  const rough = duration / 8;
-  const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+  // Calculate how many seconds correspond to a reasonable gap (e.g., 100px)
+  const rough = 100 / zoomLevel;
+  const steps = [0.1, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
   const step = steps.find((s) => s >= rough) ?? steps[steps.length - 1];
   const ticks: number[] = [];
   for (let t = 0; t <= duration; t += step) ticks.push(t);
@@ -53,8 +55,11 @@ export default function Timeline({
   onAddTextLayer,
   onAddTextToLayer,
   onMoveTextLayer,
+  zoomLevel,
+  onZoomChange,
 }: TimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -65,7 +70,7 @@ export default function Timeline({
     initialStart: number;
     initialEnd: number;
   } | null>(null);
-  const ticks = useMemo(() => buildTicks(duration), [duration]);
+  const ticks = useMemo(() => buildTicks(duration, zoomLevel), [duration, zoomLevel]);
 
   useEffect(() => {
     if (!isScrubbing) return;
@@ -74,11 +79,8 @@ export default function Timeline({
       const el = trackRef.current;
       if (!el || !duration) return;
       const rect = el.getBoundingClientRect();
-      const fraction = Math.min(
-        1,
-        Math.max(0, (e.clientX - rect.left) / rect.width)
-      );
-      onSeek(fraction * duration);
+      const time = (e.clientX - rect.left) / zoomLevel;
+      onSeek(Math.min(duration, Math.max(0, time)));
     };
 
     const handlePointerUp = () => {
@@ -100,9 +102,8 @@ export default function Timeline({
     const handlePointerMove = (e: PointerEvent) => {
       const el = trackRef.current;
       if (!el || !duration || !onUpdateTextTiming) return;
-      const rect = el.getBoundingClientRect();
       const deltaX = e.clientX - draggingText.startX;
-      const deltaSec = (deltaX / rect.width) * duration;
+      const deltaSec = deltaX / zoomLevel;
 
       let newStart = draggingText.initialStart;
       let newEnd = draggingText.initialEnd;
@@ -113,6 +114,39 @@ export default function Timeline({
         if (newEnd > duration) {
           newEnd = duration;
           newStart = newEnd - (draggingText.initialEnd - draggingText.initialStart);
+        }
+
+        // Magnetic snapping to other texts in the same layer
+        const snapThreshold = 15 / zoomLevel; // 15 pixels snapping radius
+        const currentText = textOverlays.find(t => t.id === draggingText.id);
+        if (currentText) {
+          const others = textOverlays.filter(t => t.layerIndex === currentText.layerIndex && t.id !== currentText.id);
+          for (const other of others) {
+            if (Math.abs(newStart - other.end) < snapThreshold) {
+              newStart = other.end;
+              newEnd = newStart + (draggingText.initialEnd - draggingText.initialStart);
+              break; // Snapped
+            } else if (Math.abs(newEnd - other.start) < snapThreshold) {
+              newEnd = other.start;
+              newStart = newEnd - (draggingText.initialEnd - draggingText.initialStart);
+              break; // Snapped
+            }
+          }
+        }
+
+        // Layer changing via drag
+        if (onMoveTextLayer) {
+          // Temporarily disable pointer events on the dragged element itself if needed,
+          // but elementFromPoint usually hits the background if we moved vertically out of the element.
+          const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
+          const trackContainer = elementUnderCursor?.closest('[data-layer-index]');
+          if (trackContainer) {
+            const targetLayerStr = trackContainer.getAttribute('data-layer-index');
+            if (targetLayerStr != null) {
+              const targetLayer = parseInt(targetLayerStr, 10);
+              onMoveTextLayer(draggingText.id, targetLayer);
+            }
+          }
         }
       } else if (draggingText.action === 'left') {
         newStart = Math.max(0, Math.min(draggingText.initialStart + deltaSec, newEnd - 0.5));
@@ -132,59 +166,88 @@ export default function Timeline({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [draggingText, duration, onUpdateTextTiming]);
+  }, [draggingText, duration, onUpdateTextTiming, textOverlays, zoomLevel]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault(); // prevent browser zoom
+        const zoomDelta = e.deltaY > 0 ? -15 : 15;
+        onZoomChange(Math.max(10, Math.min(200, zoomLevel + zoomDelta)));
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [zoomLevel, onZoomChange]);
 
   const seekFromEvent = (e: MouseEvent) => {
-    const el = trackRef.current;
-    if (!el || !duration) return;
-    const rect = el.getBoundingClientRect();
-    const fraction = Math.min(
-      1,
-      Math.max(0, (e.clientX - rect.left) / rect.width)
-    );
-    onSeek(fraction * duration);
+      const el = trackRef.current;
+      if (!el || !duration) return;
+      const rect = el.getBoundingClientRect();
+      const time = (e.clientX - rect.left) / zoomLevel;
+      onSeek(Math.min(duration, Math.max(0, time)));
   };
 
-  const playheadPct = duration ? (currentTime / duration) * 100 : 0;
+  const playheadPx = currentTime * zoomLevel;
+  const trackWidthPx = Math.max(duration * zoomLevel, 800); // minimum width so it doesn't look empty if short
 
   return (
-    <div className="shrink-0 border-t border-border bg-surface px-6 pb-5 pt-3">
-      {/* Ruler */}
-      <div className="relative h-5 select-none">
-        {ticks.map((t) => (
-          <span
-            key={t}
-            className="absolute top-0 -translate-x-1/2 font-mono text-[10px] text-muted"
-            style={{ left: `${(t / duration) * 100}%` }}
-          >
-            {formatTimecode(t).slice(0, -3)}
-          </span>
-        ))}
+    <div className="flex shrink-0 flex-col border-t border-border bg-surface relative z-10">
+      {/* Zoom Toolbar */}
+      <div className="flex h-10 items-center justify-end px-6 border-b border-border/50 gap-3">
+        <span className="text-[11px] font-medium text-muted">Zoom</span>
+        <input 
+          type="range" 
+          min="10" 
+          max="200" 
+          value={zoomLevel} 
+          onChange={(e) => onZoomChange(Number(e.target.value))}
+          className="w-24 accent-accent"
+        />
       </div>
 
-      {/* Track Container + playhead */}
-      <div className="relative mt-1">
-        {/* Playhead line, spans ruler tick + all tracks */}
-        <div
-          className="absolute -top-6 bottom-0 z-20 w-px bg-accent cursor-ew-resize"
-          style={{ left: `${playheadPct}%` }}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            setIsScrubbing(true);
-          }}
-        >
-          <div className="absolute -top-6 left-1/2 h-3 w-3 -translate-x-1/2 rounded-sm bg-accent" />
-        </div>
+      <div ref={scrollRef} className="overflow-x-auto px-6 pb-5 pt-3 custom-scrollbar">
+        <div style={{ width: `${trackWidthPx}px` }} className="relative min-w-full">
+          {/* Ruler */}
+          <div className="relative h-5 select-none">
+            {ticks.map((t) => (
+              <span
+                key={t}
+                className="absolute top-0 -translate-x-1/2 font-mono text-[10px] text-muted"
+                style={{ left: `${t * zoomLevel}px` }}
+              >
+                {formatTimecode(t).slice(0, -3)}
+              </span>
+            ))}
+          </div>
 
-        <div
-          ref={trackRef}
-          onClick={seekFromEvent}
-          className="relative flex flex-col gap-2 rounded-md bg-bg p-[3px] cursor-pointer"
-        >
+          {/* Track Container + playhead */}
+          <div className="relative mt-1">
+            {/* Playhead line, spans ruler tick + all tracks */}
+            <div
+              className="absolute -top-6 bottom-0 z-20 w-px bg-accent cursor-ew-resize"
+              style={{ left: `${playheadPx}px` }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setIsScrubbing(true);
+              }}
+            >
+              <div className="absolute -top-6 left-1/2 h-3 w-3 -translate-x-1/2 rounded-sm bg-accent" />
+            </div>
+
+            <div
+              ref={trackRef}
+              onClick={seekFromEvent}
+              className="relative flex flex-col gap-2 rounded-md bg-bg p-[3px] cursor-pointer"
+            >
           {/* Video Track */}
           <div className="relative flex h-16 items-stretch gap-[3px] rounded bg-surface-2 p-[2px]">
             {clips.map((clip, index) => {
-              const widthPct = ((clip.end - clip.start) / duration) * 100;
+              const width = (clip.end - clip.start) * zoomLevel;
               const isSelected = clip.id === selectedClipId;
               return (
                 <div
@@ -209,7 +272,7 @@ export default function Timeline({
                     e.stopPropagation();
                     onSelectClip(clip.id);
                   }}
-                  style={{ width: `${widthPct}%` }}
+                  style={{ width: `${width}px`, flexShrink: 0 }}
                   className={`group animate-clip-in relative flex min-w-[4px] items-center justify-center overflow-hidden rounded-[4px] border transition-colors ${
                     isSelected
                       ? "border-accent bg-accent-soft"
@@ -223,7 +286,7 @@ export default function Timeline({
                         "repeating-linear-gradient(90deg, #F2F1ED 0px, #F2F1ED 1px, transparent 1px, transparent 8px)",
                     }}
                   />
-                  {widthPct > 6 && (
+                  {width > 40 && (
                     <span className="pointer-events-none z-10 truncate px-2 font-mono text-[10px] text-muted">
                       {formatTimecode(clip.end - clip.start).slice(0, -3)}
                     </span>
@@ -250,6 +313,7 @@ export default function Timeline({
             return (
               <div 
                 key={layerIndex} 
+                data-layer-index={layerIndex}
                 className={`relative h-12 w-full rounded p-[2px] group/layer transition-colors ${
                   draggedTextId && !overlaysInLayer.find(t => t.id === draggedTextId) 
                     ? "bg-surface-2/80 ring-1 ring-accent/50 ring-inset" 
@@ -279,8 +343,8 @@ export default function Timeline({
                   </div>
                 )}
                 {overlaysInLayer.map((text) => {
-                  const startPct = duration ? (text.start / duration) * 100 : 0;
-                  const widthPct = duration ? ((text.end - text.start) / duration) * 100 : 0;
+                  const leftPx = text.start * zoomLevel;
+                  const widthPx = (text.end - text.start) * zoomLevel;
                   const isSelected = text.id === selectedTextId;
 
                   return (
@@ -290,7 +354,7 @@ export default function Timeline({
                         e.stopPropagation();
                         onSelectText?.(text.id);
                       }}
-                      style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+                      style={{ left: `${leftPx}px`, width: `${widthPx}px` }}
                       className={`absolute top-[2px] bottom-[2px] flex items-center overflow-visible rounded-[4px] border transition-colors ${
                         isSelected
                           ? "border-accent bg-accent-soft text-accent"
@@ -385,6 +449,8 @@ export default function Timeline({
             + Add Text Layer
           </button>
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

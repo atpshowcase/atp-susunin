@@ -27,6 +27,7 @@ export default function VideoEditor() {
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [textLayerCount, setTextLayerCount] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(50);
   const clipboardRef = useRef<TextOverlay | null>(null);
   const editorStateRef = useRef({ selectedTextId, textOverlays });
   editorStateRef.current = { selectedTextId, textOverlays };
@@ -273,9 +274,13 @@ export default function VideoEditor() {
   }, []);
 
   const handleMoveTextLayer = useCallback((id: string, layerIndex: number) => {
-    setTextOverlays((prev) => 
-      prev.map(t => t.id === id ? { ...t, layerIndex } : t)
-    );
+    setTextOverlays((prev) => {
+      const existing = prev.find(t => t.id === id);
+      if (existing && existing.layerIndex !== layerIndex) {
+        return prev.map(t => t.id === id ? { ...t, layerIndex } : t);
+      }
+      return prev;
+    });
   }, []);
 
   // Keyboard shortcuts: space = play/pause, S = split
@@ -390,6 +395,8 @@ export default function VideoEditor() {
             onMoveTextLayer={handleMoveTextLayer}
             onAddTextLayer={handleAddTextLayer}
             onAddTextToLayer={(layerIndex) => handleAddText(layerIndex)}
+            zoomLevel={zoomLevel}
+            onZoomChange={setZoomLevel}
           />
 
           {isExporting && (
