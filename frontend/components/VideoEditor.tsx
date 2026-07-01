@@ -25,19 +25,31 @@ export default function VideoEditor() {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [textLayerCount, setTextLayerCount] = useState(1);
 
-  const handleAddText = useCallback(() => {
-    setTextOverlays((prev) => [
-      ...prev,
-      {
-        id: nextTextId(),
-        content: "New Text",
-        x: 50,
-        y: 50,
-        color: "#ffffff",
-        fontSize: 48,
-      },
-    ]);
+  const handleAddText = useCallback((targetLayerIndex?: number) => {
+    setTextOverlays((prev) => {
+      const layerIndex = targetLayerIndex ?? (textLayerCount - 1);
+      return [
+        ...prev,
+        {
+          id: nextTextId(),
+          content: "New Text",
+          x: 50,
+          y: 50,
+          color: "#ffffff",
+          fontSize: 48,
+          start: currentTime,
+          end: Math.min(currentTime + 3, duration || currentTime + 3),
+          layerIndex,
+        },
+      ];
+    });
+  }, [currentTime, duration, textLayerCount]);
+
+  const handleAddTextLayer = useCallback(() => {
+    setTextLayerCount(prev => prev + 1);
   }, []);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -48,6 +60,9 @@ export default function VideoEditor() {
     setVideoUrl(URL.createObjectURL(file));
     setClips([]);
     setSelectedClipId(null);
+    setTextOverlays([]);
+    setSelectedTextId(null);
+    setTextLayerCount(1);
     setCurrentTime(0);
     setIsPlaying(false);
   };
@@ -166,25 +181,27 @@ export default function VideoEditor() {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
         for (const text of textOverlays) {
-          ctx.font = `bold ${text.fontSize}px sans-serif`;
-          ctx.fillStyle = text.color;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          
-          // Draw a slight shadow for readability
-          ctx.shadowColor = "rgba(0,0,0,0.8)";
-          ctx.shadowBlur = 4;
-          ctx.shadowOffsetX = 2;
-          ctx.shadowOffsetY = 2;
+          if (video.currentTime >= text.start && video.currentTime < text.end) {
+            ctx.font = `bold ${text.fontSize}px sans-serif`;
+            ctx.fillStyle = text.color;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            
+            // Draw a slight shadow for readability
+            ctx.shadowColor = "rgba(0,0,0,0.8)";
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
 
-          const x = (text.x / 100) * canvas.width;
-          const y = (text.y / 100) * canvas.height;
-          ctx.fillText(text.content, x, y);
-          
-          // Reset shadow
-          ctx.shadowBlur = 0;
-          ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = 0;
+            const x = (text.x / 100) * canvas.width;
+            const y = (text.y / 100) * canvas.height;
+            ctx.fillText(text.content, x, y);
+            
+            // Reset shadow
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+          }
         }
 
         rAF = requestAnimationFrame(drawFrame);
@@ -246,6 +263,12 @@ export default function VideoEditor() {
     });
   }, []);
 
+  const handleUpdateTextTiming = useCallback((id: string, start: number, end: number) => {
+    setTextOverlays((prev) => 
+      prev.map(t => t.id === id ? { ...t, start, end } : t)
+    );
+  }, []);
+
   // Keyboard shortcuts: space = play/pause, S = split
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -265,6 +288,8 @@ export default function VideoEditor() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [videoUrl, togglePlay, handleSplit]);
 
+  const selectedTextContent = textOverlays.find(t => t.id === selectedTextId)?.content;
+
   return (
     <div className="flex h-screen flex-col bg-bg text-text">
       <Toolbar
@@ -272,7 +297,13 @@ export default function VideoEditor() {
         hasVideo={!!videoUrl}
         onUploadClick={() => fileInputRef.current?.click()}
         onExportClick={handleExport}
-        onAddTextClick={handleAddText}
+        onAddTextClick={() => handleAddText()}
+        selectedTextContent={selectedTextContent}
+        onSelectedTextChange={(content) => {
+          if (selectedTextId) {
+            setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, content } : t));
+          }
+        }}
       />
 
       <input
@@ -311,10 +342,18 @@ export default function VideoEditor() {
             currentTime={currentTime}
             clips={clips}
             selectedClipId={selectedClipId}
+            textOverlays={textOverlays}
+            selectedTextId={selectedTextId}
+            textLayerCount={textLayerCount}
             onSeek={handleSeek}
             onSelectClip={setSelectedClipId}
             onDeleteClip={handleDeleteClip}
             onReorderClips={handleReorderClips}
+            onSelectText={setSelectedTextId}
+            onDeleteText={(id) => setTextOverlays(prev => prev.filter(t => t.id !== id))}
+            onUpdateTextTiming={handleUpdateTextTiming}
+            onAddTextLayer={handleAddTextLayer}
+            onAddTextToLayer={(layerIndex) => handleAddText(layerIndex)}
           />
 
           {isExporting && (

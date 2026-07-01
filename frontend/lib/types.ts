@@ -13,6 +13,9 @@ export interface TextOverlay {
   y: number; // Percentage 0-100 relative to video height
   color: string;
   fontSize: number;
+  start: number;
+  end: number;
+  layerIndex: number;
 }
 
 export function formatTimecode(totalSeconds: number): string {

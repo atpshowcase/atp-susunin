@@ -2,17 +2,25 @@
 
 import { Trash2 } from "lucide-react";
 import { MouseEvent, useMemo, useRef, useState, useEffect } from "react";
-import { Clip, formatTimecode } from "@/lib/types";
+import { Clip, TextOverlay, formatTimecode } from "@/lib/types";
 
 interface TimelineProps {
   duration: number;
   currentTime: number;
   clips: Clip[];
   selectedClipId: string | null;
+  textOverlays?: TextOverlay[];
+  selectedTextId?: string | null;
   onSeek: (time: number) => void;
   onSelectClip: (id: string) => void;
   onDeleteClip: (id: string) => void;
   onReorderClips: (startIndex: number, endIndex: number) => void;
+  onSelectText?: (id: string) => void;
+  onDeleteText?: (id: string) => void;
+  onUpdateTextTiming?: (id: string, start: number, end: number) => void;
+  textLayerCount?: number;
+  onAddTextLayer?: () => void;
+  onAddTextToLayer?: (layerIndex: number) => void;
 }
 
 function buildTicks(duration: number) {
@@ -31,14 +39,29 @@ export default function Timeline({
   currentTime,
   clips,
   selectedClipId,
+  textOverlays = [],
+  selectedTextId = null,
   onSeek,
   onSelectClip,
   onDeleteClip,
   onReorderClips,
+  onSelectText,
+  onDeleteText,
+  onUpdateTextTiming,
+  textLayerCount = 1,
+  onAddTextLayer,
+  onAddTextToLayer,
 }: TimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [draggingText, setDraggingText] = useState<{
+    id: string;
+    action: 'move' | 'left' | 'right';
+    startX: number;
+    initialStart: number;
+    initialEnd: number;
+  } | null>(null);
   const ticks = useMemo(() => buildTicks(duration), [duration]);
 
   useEffect(() => {
@@ -68,6 +91,46 @@ export default function Timeline({
     };
   }, [isScrubbing, duration, onSeek]);
 
+  useEffect(() => {
+    if (!draggingText) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const el = trackRef.current;
+      if (!el || !duration || !onUpdateTextTiming) return;
+      const rect = el.getBoundingClientRect();
+      const deltaX = e.clientX - draggingText.startX;
+      const deltaSec = (deltaX / rect.width) * duration;
+
+      let newStart = draggingText.initialStart;
+      let newEnd = draggingText.initialEnd;
+
+      if (draggingText.action === 'move') {
+        newStart = Math.max(0, draggingText.initialStart + deltaSec);
+        newEnd = newStart + (draggingText.initialEnd - draggingText.initialStart);
+        if (newEnd > duration) {
+          newEnd = duration;
+          newStart = newEnd - (draggingText.initialEnd - draggingText.initialStart);
+        }
+      } else if (draggingText.action === 'left') {
+        newStart = Math.max(0, Math.min(draggingText.initialStart + deltaSec, newEnd - 0.5));
+      } else if (draggingText.action === 'right') {
+        newEnd = Math.min(duration, Math.max(draggingText.initialEnd + deltaSec, newStart + 0.5));
+      }
+
+      onUpdateTextTiming(draggingText.id, newStart, newEnd);
+    };
+
+    const handlePointerUp = () => setDraggingText(null);
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [draggingText, duration, onUpdateTextTiming]);
+
   const seekFromEvent = (e: MouseEvent) => {
     const el = trackRef.current;
     if (!el || !duration) return;
@@ -96,9 +159,9 @@ export default function Timeline({
         ))}
       </div>
 
-      {/* Track + playhead */}
-      <div className="relative">
-        {/* Playhead line, spans ruler tick + track */}
+      {/* Track Container + playhead */}
+      <div className="relative mt-1">
+        {/* Playhead line, spans ruler tick + all tracks */}
         <div
           className="absolute -top-6 bottom-0 z-20 w-px bg-accent cursor-ew-resize"
           style={{ left: `${playheadPct}%` }}
@@ -113,70 +176,175 @@ export default function Timeline({
         <div
           ref={trackRef}
           onClick={seekFromEvent}
-          className="relative flex h-16 cursor-pointer items-stretch gap-[3px] rounded-md bg-bg p-[3px]"
+          className="relative flex flex-col gap-2 rounded-md bg-bg p-[3px] cursor-pointer"
         >
-          {clips.map((clip, index) => {
-            const widthPct = ((clip.end - clip.start) / duration) * 100;
-            const isSelected = clip.id === selectedClipId;
-            return (
-              <div
-                key={clip.id}
-                draggable
-                onDragStart={(e) => {
-                  setDraggedIdx(index);
-                  e.dataTransfer.effectAllowed = "move";
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (draggedIdx !== null && draggedIdx !== index) {
-                    onReorderClips(draggedIdx, index);
-                  }
-                  setDraggedIdx(null);
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectClip(clip.id);
-                }}
-                style={{ width: `${widthPct}%` }}
-                className={`group animate-clip-in relative flex min-w-[4px] items-center justify-center overflow-hidden rounded-[5px] border transition-colors ${
-                  isSelected
-                    ? "border-accent bg-accent-soft"
-                    : "border-transparent bg-surface-2 hover:bg-surface-3"
-                } ${draggedIdx === index ? "opacity-50" : ""}`}
-              >
-                {/* film-strip texture */}
+          {/* Video Track */}
+          <div className="relative flex h-16 items-stretch gap-[3px] rounded bg-surface-2 p-[2px]">
+            {clips.map((clip, index) => {
+              const widthPct = ((clip.end - clip.start) / duration) * 100;
+              const isSelected = clip.id === selectedClipId;
+              return (
                 <div
-                  className="absolute inset-0 opacity-[0.06]"
-                  style={{
-                    backgroundImage:
-                      "repeating-linear-gradient(90deg, #F2F1ED 0px, #F2F1ED 1px, transparent 1px, transparent 8px)",
+                  key={clip.id}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggedIdx(index);
+                    e.dataTransfer.effectAllowed = "move";
                   }}
-                />
-                {widthPct > 6 && (
-                  <span className="pointer-events-none z-10 truncate px-2 font-mono text-[10px] text-muted">
-                    {formatTimecode(clip.end - clip.start).slice(0, -3)}
-                  </span>
-                )}
-
-                {isSelected && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteClip(clip.id);
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggedIdx !== null && draggedIdx !== index) {
+                      onReorderClips(draggedIdx, index);
+                    }
+                    setDraggedIdx(null);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectClip(clip.id);
+                  }}
+                  style={{ width: `${widthPct}%` }}
+                  className={`group animate-clip-in relative flex min-w-[4px] items-center justify-center overflow-hidden rounded-[4px] border transition-colors ${
+                    isSelected
+                      ? "border-accent bg-accent-soft"
+                      : "border-transparent bg-surface-3 hover:bg-surface-4"
+                  } ${draggedIdx === index ? "opacity-50" : ""}`}
+                >
+                  <div
+                    className="absolute inset-0 opacity-[0.06]"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(90deg, #F2F1ED 0px, #F2F1ED 1px, transparent 1px, transparent 8px)",
                     }}
-                    className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded bg-bg/80 text-muted transition-colors hover:text-danger"
-                    aria-label="Delete clip"
-                  >
-                    <Trash2 size={11} strokeWidth={2} />
-                  </button>
+                  />
+                  {widthPct > 6 && (
+                    <span className="pointer-events-none z-10 truncate px-2 font-mono text-[10px] text-muted">
+                      {formatTimecode(clip.end - clip.start).slice(0, -3)}
+                    </span>
+                  )}
+                  {isSelected && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteClip(clip.id);
+                      }}
+                      className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded bg-bg/80 text-muted transition-colors hover:text-danger"
+                    >
+                      <Trash2 size={11} strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Text Tracks */}
+          {Array.from({ length: textLayerCount }).map((_, layerIndex) => {
+            const overlaysInLayer = textOverlays.filter(t => t.layerIndex === layerIndex);
+            return (
+              <div key={layerIndex} className="relative h-12 w-full rounded bg-surface-2 p-[2px] group/layer">
+                {/* Empty track placeholder / Add button */}
+                {overlaysInLayer.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/layer:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => onAddTextToLayer?.(layerIndex)}
+                      className="text-[11px] text-muted hover:text-text bg-bg/50 px-2 py-1 rounded"
+                    >
+                      + Add text to layer {layerIndex + 1}
+                    </button>
+                  </div>
                 )}
+                {overlaysInLayer.map((text) => {
+                  const startPct = duration ? (text.start / duration) * 100 : 0;
+                  const widthPct = duration ? ((text.end - text.start) / duration) * 100 : 0;
+                  const isSelected = text.id === selectedTextId;
+
+                  return (
+                    <div
+                      key={text.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectText?.(text.id);
+                      }}
+                      style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+                      className={`absolute top-[2px] bottom-[2px] flex items-center justify-center overflow-visible rounded-[4px] border transition-colors ${
+                        isSelected
+                          ? "border-accent bg-accent-soft text-accent"
+                          : "border-transparent bg-primary text-primary-foreground hover:opacity-90"
+                      }`}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        onSelectText?.(text.id);
+                        setDraggingText({
+                          id: text.id,
+                          action: 'move',
+                          startX: e.clientX,
+                          initialStart: text.start,
+                          initialEnd: text.end,
+                        });
+                      }}
+                    >
+                      <div
+                        className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-black/10 z-20"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          onSelectText?.(text.id);
+                          setDraggingText({
+                            id: text.id,
+                            action: 'left',
+                            startX: e.clientX,
+                            initialStart: text.start,
+                            initialEnd: text.end,
+                          });
+                        }}
+                      />
+                      <div
+                        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-black/10 z-20"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          onSelectText?.(text.id);
+                          setDraggingText({
+                            id: text.id,
+                            action: 'right',
+                            startX: e.clientX,
+                            initialStart: text.start,
+                            initialEnd: text.end,
+                          });
+                        }}
+                      />
+                      <span className="truncate px-2 font-mono text-[11px] font-medium select-none pointer-events-none">
+                        T: {text.content}
+                      </span>
+                      {isSelected && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteText?.(text.id);
+                          }}
+                          className="absolute right-1 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded bg-bg/80 text-muted transition-colors hover:text-danger"
+                        >
+                          <Trash2 size={11} strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
+          
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddTextLayer?.();
+            }}
+            className="flex h-6 w-full items-center justify-center gap-1 rounded bg-surface-2 text-[11px] text-muted transition-colors hover:bg-surface-3 hover:text-text"
+          >
+            + Add Text Layer
+          </button>
         </div>
       </div>
     </div>

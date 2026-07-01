@@ -68,7 +68,7 @@ export default function PreviewPlayer({
           className="max-h-[52vh] max-w-full"
         />
         
-        {textOverlays.map(text => (
+        {textOverlays.filter(t => currentTime >= t.start && currentTime < t.end).map(text => (
           <div
             key={text.id}
             className="absolute cursor-move select-none whitespace-nowrap outline-none"

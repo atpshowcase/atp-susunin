@@ -8,6 +8,8 @@ interface ToolbarProps {
   onExportClick: () => void;
   onAddTextClick: () => void;
   hasVideo: boolean;
+  selectedTextContent?: string | null;
+  onSelectedTextChange?: (content: string) => void;
 }
 
 export default function Toolbar({
@@ -16,6 +18,8 @@ export default function Toolbar({
   onExportClick,
   onAddTextClick,
   hasVideo,
+  selectedTextContent,
+  onSelectedTextChange,
 }: ToolbarProps) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
@@ -29,6 +33,15 @@ export default function Toolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        {selectedTextContent != null && onSelectedTextChange && (
+          <input
+            type="text"
+            value={selectedTextContent}
+            onChange={(e) => onSelectedTextChange(e.target.value)}
+            className="rounded-md border border-border bg-bg px-2 py-1 text-[13px] text-text outline-none focus:border-accent w-48 mr-2"
+            placeholder="Edit text..."
+          />
+        )}
         <button
           onClick={onAddTextClick}
           disabled={!hasVideo}
