@@ -32,6 +32,21 @@ export default function PreviewPlayer({
 }: PreviewPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const video = entry.target as HTMLVideoElement;
+        if (video.videoHeight > 0) {
+          setScale(entry.contentRect.height / video.videoHeight);
+        }
+      }
+    });
+    observer.observe(videoRef.current);
+    return () => observer.disconnect();
+  }, [videoUrl, videoRef]);
 
   useEffect(() => {
     if (!draggingId) return;
@@ -78,7 +93,7 @@ export default function PreviewPlayer({
               top: `${text.y}%`,
               transform: 'translate(-50%, -50%)',
               color: text.color,
-              fontSize: `${text.fontSize}px`,
+              fontSize: `${Math.max(12, text.fontSize * scale)}px`,
               fontWeight: 'bold',
               textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
             }}
@@ -109,7 +124,7 @@ export default function PreviewPlayer({
             </span>
             {/* Delete button when hovered/focused can be added later if needed */}
           </div>
-        ))}
+          ))}
       </div>
 
       <div className="flex w-full max-w-md items-center justify-center gap-3">

@@ -8,6 +8,7 @@ export async function exportVideoWithFFmpeg(
   videoFile: File,
   clips: Clip[],
   textOverlays: TextOverlay[],
+  scaleFactor: number,
   onProgress: (progress: number) => void
 ): Promise<Blob> {
   if (!ffmpeg) {
@@ -74,12 +75,11 @@ export async function exportVideoWithFFmpeg(
       // We will just pass the raw fontSize for now.
       const escapedText = text.content.replace(/'/g, "'\\\\''").replace(/:/g, "\\:");
       const hexColor = text.color.replace("#", "");
+      const scaledFontSize = Math.round(text.fontSize * scaleFactor);
       
-      // text.start and text.end need to be calculated relative to the concatenated timeline
-      // but text.start is absolute. Wait, text.start is already in timeline time!
-      // The timeline time is exactly what `drawtext` uses if we just apply it after concat.
-      
-      filterGraph += `${lastVideoOutput}drawtext=fontfile=${fontName}:text='${escapedText}':fontcolor=0x${hexColor}:fontsize=${text.fontSize}:x=(w-text_w)*(${text.x}/100):y=(h-text_h)*(${text.y}/100):enable='between(t,${text.start},${text.end})'${nextOutput}; `;
+      // x and y in TextOverlay represent the center of the text.
+      // In FFmpeg, we calculate the top-left corner by subtracting text_w/2 and text_h/2.
+      filterGraph += `${lastVideoOutput}drawtext=fontfile=${fontName}:text='${escapedText}':fontcolor=0x${hexColor}:fontsize=${scaledFontSize}:x=(w*${text.x}/100)-(text_w/2):y=(h*${text.y}/100)-(text_h/2):enable='between(t,${text.start},${text.end})'${nextOutput}; `;
       
       lastVideoOutput = nextOutput;
     });

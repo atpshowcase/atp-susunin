@@ -3,11 +3,15 @@
 export default function RightPropertiesPanel({ 
   isItemSelected = true,
   textContent = "",
-  onTextChange
+  fontSize = 48,
+  onTextChange,
+  onFontSizeChange
 }: { 
   isItemSelected?: boolean;
   textContent?: string;
+  fontSize?: number;
   onTextChange?: (val: string) => void;
+  onFontSizeChange?: (val: number) => void;
 }) {
   if (!isItemSelected) {
     return (
@@ -47,10 +51,17 @@ export default function RightPropertiesPanel({
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-[13px] text-muted">Skala</span>
-              <span className="text-[13px] text-text font-mono">100%</span>
+              <span className="text-[13px] text-text font-mono">{Math.round((fontSize / 48) * 100)}%</span>
             </div>
             <div className="flex items-center gap-3">
-              <input type="range" min="0" max="200" defaultValue="100" className="flex-1 accent-[#00F0FF] h-1 bg-[#2A2A2E] rounded-lg appearance-none" />
+              <input 
+                type="range" 
+                min="10" 
+                max="200" 
+                value={fontSize} 
+                onChange={(e) => onFontSizeChange?.(Number(e.target.value))}
+                className="flex-1 accent-[#00F0FF] h-1 bg-[#2A2A2E] rounded-lg appearance-none" 
+              />
               <div className="w-4 h-4 rounded-sm border border-border/50 flex items-center justify-center bg-[#2A2A2E]">
                 <div className="w-1.5 h-1.5 rounded-full bg-muted"></div>
               </div>

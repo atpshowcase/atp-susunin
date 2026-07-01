@@ -195,11 +195,15 @@ export default function VideoEditor() {
     setIsExporting(true);
     setExportProgress(0);
 
+    const video = videoRef.current;
+    const scaleFactor = video ? video.videoHeight / video.getBoundingClientRect().height : 1;
+
     try {
       const exportedBlob = await exportVideoWithFFmpeg(
         videoFile,
         clips,
         textOverlays,
+        scaleFactor,
         (progress) => setExportProgress(progress)
       );
       
@@ -312,7 +316,8 @@ export default function VideoEditor() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [videoUrl, togglePlay, handleSplit, handleDeleteClip, undo, redo]);
 
-  const selectedTextContent = textOverlays.find(t => t.id === selectedTextId)?.content;
+  const selectedText = textOverlays.find(t => t.id === selectedTextId);
+  const selectedTextContent = selectedText?.content;
 
   return (
     <div className="flex h-screen flex-col bg-[#111111] text-text overflow-hidden">
@@ -354,9 +359,15 @@ export default function VideoEditor() {
               <RightPropertiesPanel 
                 isItemSelected={!!selectedTextId} 
                 textContent={selectedTextContent}
+                fontSize={selectedText?.fontSize}
                 onTextChange={(content) => {
                   if (selectedTextId) {
                     setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, content } : t));
+                  }
+                }}
+                onFontSizeChange={(fontSize) => {
+                  if (selectedTextId) {
+                    setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, fontSize } : t));
                   }
                 }}
               />
