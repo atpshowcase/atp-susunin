@@ -271,6 +271,9 @@ export default function Timeline({
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectClip(clip.id);
+                    if (currentTime < clip.start || currentTime >= clip.end) {
+                      onSeek(clip.start);
+                    }
                   }}
                   style={{ width: `${width}px`, flexShrink: 0 }}
                   className={`group animate-clip-in relative flex min-w-[4px] items-center justify-center overflow-hidden rounded-[4px] border transition-colors ${
@@ -363,6 +366,9 @@ export default function Timeline({
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         onSelectText?.(text.id);
+                        if (currentTime < text.start || currentTime >= text.end) {
+                          onSeek?.(text.start);
+                        }
                         setDraggingText({
                           id: text.id,
                           action: 'move',
@@ -438,16 +444,6 @@ export default function Timeline({
               </div>
             );
           })}
-          
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddTextLayer?.();
-            }}
-            className="flex h-6 w-full items-center justify-center gap-1 rounded bg-surface-2 text-[11px] text-muted transition-colors hover:bg-surface-3 hover:text-text"
-          >
-            + Add Text Layer
-          </button>
         </div>
       </div>
       </div>

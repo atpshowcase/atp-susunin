@@ -1,6 +1,14 @@
 "use client";
 
-export default function RightPropertiesPanel({ isItemSelected = true }: { isItemSelected?: boolean }) {
+export default function RightPropertiesPanel({ 
+  isItemSelected = true,
+  textContent = "",
+  onTextChange
+}: { 
+  isItemSelected?: boolean;
+  textContent?: string;
+  onTextChange?: (val: string) => void;
+}) {
   if (!isItemSelected) {
     return (
       <div className="w-[300px] shrink-0 border-l border-border/50 bg-[#171719] flex flex-col items-center justify-center text-muted text-[13px]">
@@ -24,7 +32,8 @@ export default function RightPropertiesPanel({ isItemSelected = true }: { isItem
           <h3 className="text-[14px] font-semibold text-text mb-4">Dasar</h3>
           <textarea 
             className="w-full bg-[#1F1F22] border border-border/50 rounded-md p-3 text-[13px] text-text outline-none focus:border-[#00F0FF]/50 min-h-[80px] resize-none"
-            defaultValue={"มีความสุข\nพ่อ\nวัน"}
+            value={textContent}
+            onChange={(e) => onTextChange?.(e.target.value)}
           />
         </div>
 

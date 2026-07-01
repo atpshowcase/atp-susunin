@@ -9,6 +9,7 @@ import LeftSidebar from "./LeftSidebar";
 import LeftPanel from "./LeftPanel";
 import RightPropertiesPanel from "./RightPropertiesPanel";
 import { Clip, TextOverlay } from "@/lib/types";
+import { useHistory } from "./useHistory";
 
 let clipIdCounter = 0;
 const nextClipId = () => `clip-${clipIdCounter++}`;
@@ -24,36 +25,79 @@ export default function VideoEditor() {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [clips, setClips] = useState<Clip[]>([]);
+  const {
+    state: projectState,
+    setWithHistory: setProjectState,
+    undo,
+    redo
+  } = useHistory<{ clips: Clip[], textOverlays: TextOverlay[] }>({ clips: [], textOverlays: [] });
+
+  const clips = projectState.clips;
+  const textOverlays = projectState.textOverlays;
+
+  const setClips = useCallback((updater: Clip[] | ((prev: Clip[]) => Clip[])) => {
+    setProjectState(prev => ({
+      ...prev,
+      clips: typeof updater === 'function' ? updater(prev.clips) : updater
+    }));
+  }, [setProjectState]);
+
+  const setTextOverlays = useCallback((updater: TextOverlay[] | ((prev: TextOverlay[]) => TextOverlay[])) => {
+    setProjectState(prev => ({
+      ...prev,
+      textOverlays: typeof updater === 'function' ? updater(prev.textOverlays) : updater
+    }));
+  }, [setProjectState]);
+
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [textLayerCount, setTextLayerCount] = useState(1);
   const [zoomLevel, setZoomLevel] = useState(50);
   const clipboardRef = useRef<TextOverlay | null>(null);
-  const editorStateRef = useRef({ selectedTextId, textOverlays });
-  editorStateRef.current = { selectedTextId, textOverlays };
+  const editorStateRef = useRef({ selectedTextId, textOverlays, selectedClipId });
+  editorStateRef.current = { selectedTextId, textOverlays, selectedClipId };
 
   const handleAddText = useCallback((targetLayerIndex?: number) => {
-    setTextOverlays((prev) => {
-      const layerIndex = targetLayerIndex ?? (textLayerCount - 1);
-      return [
-        ...prev,
-        {
-          id: nextTextId(),
-          content: "New Text",
-          x: 50,
-          y: 50,
-          color: "#ffffff",
-          fontSize: 48,
-          start: currentTime,
-          end: Math.min(currentTime + 3, duration || currentTime + 3),
-          layerIndex,
-        },
-      ];
-    });
-  }, [currentTime, duration, textLayerCount]);
+    const durationOfNewText = 3;
+    const newStart = currentTime;
+    const newEnd = Math.min(currentTime + durationOfNewText, duration || currentTime + durationOfNewText);
+
+    let layerIndex = targetLayerIndex;
+
+    if (layerIndex === undefined) {
+      // Find lowest layer without overlap
+      for (let i = 0; i < textLayerCount; i++) {
+        const layerTexts = textOverlays.filter(t => t.layerIndex === i);
+        const overlaps = layerTexts.some(t => Math.max(t.start, newStart) < Math.min(t.end, newEnd));
+        if (!overlaps) {
+          layerIndex = i;
+          break;
+        }
+      }
+      
+      // If all existing layers overlap, create a new one
+      if (layerIndex === undefined) {
+        layerIndex = textLayerCount;
+        setTextLayerCount(prev => prev + 1);
+      }
+    }
+
+    setTextOverlays((prev) => [
+      ...prev,
+      {
+        id: nextTextId(),
+        content: "New Text",
+        x: 50,
+        y: 50,
+        color: "#ffffff",
+        fontSize: 48,
+        start: newStart,
+        end: newEnd,
+        layerIndex: layerIndex!,
+      },
+    ]);
+  }, [currentTime, duration, textLayerCount, textOverlays]);
 
   const handleAddTextLayer = useCallback(() => {
     setTextLayerCount(prev => prev + 1);
@@ -325,11 +369,31 @@ export default function VideoEditor() {
           setTextOverlays(prev => [...prev, newOverlay]);
           setSelectedTextId(newOverlay.id);
         }
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        const { selectedTextId, selectedClipId } = editorStateRef.current;
+        if (selectedTextId) {
+          e.preventDefault();
+          setTextOverlays(prev => prev.filter(t => t.id !== selectedTextId));
+          setSelectedTextId(null);
+        } else if (selectedClipId) {
+          e.preventDefault();
+          handleDeleteClip(selectedClipId);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo(); // Cmd+Shift+Z for redo
+        } else {
+          undo(); // Cmd+Z for undo
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo(); // Ctrl+Y for redo
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [videoUrl, togglePlay, handleSplit]);
+  }, [videoUrl, togglePlay, handleSplit, handleDeleteClip, undo, redo]);
 
   const selectedTextContent = textOverlays.find(t => t.id === selectedTextId)?.content;
 
@@ -370,7 +434,15 @@ export default function VideoEditor() {
                   selectedTextId={selectedTextId}
                 />
               </div>
-              <RightPropertiesPanel isItemSelected={!!selectedTextId} />
+              <RightPropertiesPanel 
+                isItemSelected={!!selectedTextId} 
+                textContent={selectedTextContent}
+                onTextChange={(content) => {
+                  if (selectedTextId) {
+                    setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, content } : t));
+                  }
+                }}
+              />
             </div>
 
             <VideoEventBridge
