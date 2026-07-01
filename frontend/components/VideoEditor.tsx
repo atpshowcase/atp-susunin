@@ -10,6 +10,7 @@ import LeftPanel from "./LeftPanel";
 import RightPropertiesPanel from "./RightPropertiesPanel";
 import { Clip, TextOverlay } from "@/lib/types";
 import { useHistory } from "./useHistory";
+import { exportVideoWithFFmpeg } from "@/utils/exportVideo";
 
 let clipIdCounter = 0;
 const nextClipId = () => `clip-${clipIdCounter++}`;
@@ -21,6 +22,7 @@ export default function VideoEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [fileName, setFileName] = useState<string | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -51,6 +53,7 @@ export default function VideoEditor() {
 
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [textLayerCount, setTextLayerCount] = useState(1);
   const [zoomLevel, setZoomLevel] = useState(50);
@@ -108,6 +111,7 @@ export default function VideoEditor() {
     if (!file) return;
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setFileName(file.name);
+    setVideoFile(file);
     setVideoUrl(URL.createObjectURL(file));
     setClips([]);
     setSelectedClipId(null);
@@ -186,124 +190,37 @@ export default function VideoEditor() {
   );
 
   const handleExport = useCallback(async () => {
-    if (!videoUrl || !fileName || clips.length === 0) return;
+    if (!videoFile || !fileName || clips.length === 0) return;
     
-    const video = videoRef.current;
-    if (!video) return;
-
     setIsExporting(true);
+    setExportProgress(0);
 
     try {
-      // @ts-ignore
-      const videoStream = (video.captureStream || video.mozCaptureStream).call(video);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas not supported");
-
-      const canvasStream = canvas.captureStream(30);
-      const audioTracks = videoStream.getAudioTracks();
-      const combinedStream = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        ...audioTracks
-      ]);
-
-      // Determine MIME type supported
-      const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
-        ? 'video/webm; codecs=vp9'
-        : 'video/webm';
-      const recorder = new MediaRecorder(combinedStream, { mimeType });
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = e => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-      
-      const exportComplete = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
-      });
-
-      recorder.start();
-
-      let rAF: number;
-      const drawFrame = () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        for (const text of textOverlays) {
-          if (video.currentTime >= text.start && video.currentTime < text.end) {
-            ctx.font = `bold ${text.fontSize}px sans-serif`;
-            ctx.fillStyle = text.color;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            
-            // Draw a slight shadow for readability
-            ctx.shadowColor = "rgba(0,0,0,0.8)";
-            ctx.shadowBlur = 4;
-            ctx.shadowOffsetX = 2;
-            ctx.shadowOffsetY = 2;
-
-            const x = (text.x / 100) * canvas.width;
-            const y = (text.y / 100) * canvas.height;
-            ctx.fillText(text.content, x, y);
-            
-            // Reset shadow
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
-          }
-        }
-
-        rAF = requestAnimationFrame(drawFrame);
-      };
-      drawFrame();
-
-      const origTime = video.currentTime;
-      const origPaused = video.paused;
-
-      // Play through all clips sequentially
-      for (const clip of clips) {
-        video.currentTime = clip.start;
-        await video.play();
-        
-        await new Promise<void>((resolve) => {
-          const checkTime = () => {
-            if (video.currentTime >= clip.end) {
-              video.removeEventListener('timeupdate', checkTime);
-              resolve();
-            }
-          };
-          video.addEventListener('timeupdate', checkTime);
-        });
-        
-        video.pause();
-      }
-
-      cancelAnimationFrame(rAF);
-      recorder.stop();
-      
-      const exportedBlob = await exportComplete;
-      video.currentTime = origTime;
-      if (!origPaused) video.play();
+      const exportedBlob = await exportVideoWithFFmpeg(
+        videoFile,
+        clips,
+        textOverlays,
+        (progress) => setExportProgress(progress)
+      );
       
       const totalDuration = clips.reduce((acc, clip) => acc + (clip.end - clip.start), 0);
       const durationStr = totalDuration.toFixed(1);
 
       const a = document.createElement("a");
       a.href = URL.createObjectURL(exportedBlob);
-      a.download = `exported-${durationStr}s-${fileName.split('.')[0]}.webm`;
+      a.download = `exported-${durationStr}s-${fileName.split('.')[0]}.mp4`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
 
     } catch (e) {
       console.error(e);
-      alert("Export failed.");
+      alert("Export failed");
+    } finally {
+      setIsExporting(false);
+      setExportProgress(0);
     }
-
-    setIsExporting(false);
-  }, [videoUrl, fileName, clips, textOverlays]);
+  }, [videoFile, fileName, clips, textOverlays]);
 
   const handleReorderClips = useCallback((startIndex: number, endIndex: number) => {
     setClips((prev) => {
@@ -479,7 +396,7 @@ export default function VideoEditor() {
               <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
                 <div className="flex flex-col items-center gap-4">
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
-                  <p className="text-[15px] font-medium text-text">Exporting video in real-time...</p>
+                  <p className="text-[15px] font-medium text-text">Exporting video: {exportProgress.toFixed(0)}%</p>
                   <p className="text-[13px] text-muted">Please wait, do not close the window.</p>
                 </div>
               </div>

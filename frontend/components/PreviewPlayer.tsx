@@ -15,6 +15,7 @@ interface PreviewPlayerProps {
   onSplit: () => void;
   textOverlays: TextOverlay[];
   setTextOverlays: React.Dispatch<React.SetStateAction<TextOverlay[]>>;
+  selectedTextId?: string | null;
 }
 
 export default function PreviewPlayer({

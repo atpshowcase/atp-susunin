@@ -184,7 +184,7 @@ export default function Timeline({
     return () => el.removeEventListener('wheel', handleWheel);
   }, [zoomLevel, onZoomChange]);
 
-  const seekFromEvent = (e: MouseEvent) => {
+  const seekFromEvent = (e: React.MouseEvent) => {
       const el = trackRef.current;
       if (!el || !duration) return;
       const rect = el.getBoundingClientRect();
