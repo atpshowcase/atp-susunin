@@ -21,6 +21,7 @@ interface TimelineProps {
   textLayerCount?: number;
   onAddTextLayer?: () => void;
   onAddTextToLayer?: (layerIndex: number) => void;
+  onMoveTextLayer?: (id: string, layerIndex: number) => void;
 }
 
 function buildTicks(duration: number) {
@@ -51,9 +52,11 @@ export default function Timeline({
   textLayerCount = 1,
   onAddTextLayer,
   onAddTextToLayer,
+  onMoveTextLayer,
 }: TimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [draggingText, setDraggingText] = useState<{
     id: string;
@@ -245,7 +248,25 @@ export default function Timeline({
           {Array.from({ length: textLayerCount }).map((_, layerIndex) => {
             const overlaysInLayer = textOverlays.filter(t => t.layerIndex === layerIndex);
             return (
-              <div key={layerIndex} className="relative h-12 w-full rounded bg-surface-2 p-[2px] group/layer">
+              <div 
+                key={layerIndex} 
+                className={`relative h-12 w-full rounded p-[2px] group/layer transition-colors ${
+                  draggedTextId && !overlaysInLayer.find(t => t.id === draggedTextId) 
+                    ? "bg-surface-2/80 ring-1 ring-accent/50 ring-inset" 
+                    : "bg-surface-2"
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (draggedTextId && onMoveTextLayer) {
+                    onMoveTextLayer(draggedTextId, layerIndex);
+                  }
+                  setDraggedTextId(null);
+                }}
+              >
                 {/* Empty track placeholder / Add button */}
                 {overlaysInLayer.length === 0 && (
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/layer:opacity-100 transition-opacity">
@@ -270,11 +291,11 @@ export default function Timeline({
                         onSelectText?.(text.id);
                       }}
                       style={{ left: `${startPct}%`, width: `${widthPct}%` }}
-                      className={`absolute top-[2px] bottom-[2px] flex items-center justify-center overflow-visible rounded-[4px] border transition-colors ${
+                      className={`absolute top-[2px] bottom-[2px] flex items-center overflow-visible rounded-[4px] border transition-colors ${
                         isSelected
                           ? "border-accent bg-accent-soft text-accent"
-                          : "border-transparent bg-primary text-primary-foreground hover:opacity-90"
-                      }`}
+                          : "border-border/50 bg-[#2C2C35] text-text hover:bg-[#353540] shadow-sm"
+                      } ${draggedTextId === text.id ? "opacity-50" : ""}`}
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         onSelectText?.(text.id);
@@ -315,7 +336,25 @@ export default function Timeline({
                           });
                         }}
                       />
-                      <span className="truncate px-2 font-mono text-[11px] font-medium select-none pointer-events-none">
+                      
+                      {/* Drag handle for layer moving */}
+                      <div
+                        className="absolute left-2 top-1/2 flex h-5 w-3 -translate-y-1/2 cursor-grab flex-col items-center justify-center gap-[2px] opacity-40 hover:opacity-100 z-30"
+                        draggable
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          setDraggedTextId(text.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => setDraggedTextId(null)}
+                      >
+                        <div className="h-[2px] w-[2px] rounded-full bg-current" />
+                        <div className="h-[2px] w-[2px] rounded-full bg-current" />
+                        <div className="h-[2px] w-[2px] rounded-full bg-current" />
+                      </div>
+
+                      <span className="truncate pl-7 pr-2 font-mono text-[11px] font-medium select-none pointer-events-none">
                         T: {text.content}
                       </span>
                       {isSelected && (

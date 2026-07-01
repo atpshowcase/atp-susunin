@@ -27,6 +27,9 @@ export default function VideoEditor() {
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [textLayerCount, setTextLayerCount] = useState(1);
+  const clipboardRef = useRef<TextOverlay | null>(null);
+  const editorStateRef = useRef({ selectedTextId, textOverlays });
+  editorStateRef.current = { selectedTextId, textOverlays };
 
   const handleAddText = useCallback((targetLayerIndex?: number) => {
     setTextOverlays((prev) => {
@@ -269,6 +272,12 @@ export default function VideoEditor() {
     );
   }, []);
 
+  const handleMoveTextLayer = useCallback((id: string, layerIndex: number) => {
+    setTextOverlays((prev) => 
+      prev.map(t => t.id === id ? { ...t, layerIndex } : t)
+    );
+  }, []);
+
   // Keyboard shortcuts: space = play/pause, S = split
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -279,9 +288,35 @@ export default function VideoEditor() {
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
-      } else if (e.key.toLowerCase() === "s") {
+      } else if (e.key.toLowerCase() === "s" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleSplit();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const { selectedTextId, textOverlays } = editorStateRef.current;
+        if (selectedTextId) {
+          const textToCopy = textOverlays.find(t => t.id === selectedTextId);
+          if (textToCopy) {
+            clipboardRef.current = { ...textToCopy };
+          }
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        if (clipboardRef.current) {
+          e.preventDefault();
+          const t = videoRef.current?.currentTime ?? 0;
+          const d = videoRef.current?.duration ?? 0;
+          const durationOfCopied = clipboardRef.current.end - clipboardRef.current.start;
+          const newStart = t;
+          const newEnd = Math.min(t + durationOfCopied, d || t + durationOfCopied);
+          
+          const newOverlay: TextOverlay = {
+            ...clipboardRef.current,
+            id: nextTextId(),
+            start: newStart,
+            end: newEnd,
+          };
+          setTextOverlays(prev => [...prev, newOverlay]);
+          setSelectedTextId(newOverlay.id);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -352,6 +387,7 @@ export default function VideoEditor() {
             onSelectText={setSelectedTextId}
             onDeleteText={(id) => setTextOverlays(prev => prev.filter(t => t.id !== id))}
             onUpdateTextTiming={handleUpdateTextTiming}
+            onMoveTextLayer={handleMoveTextLayer}
             onAddTextLayer={handleAddTextLayer}
             onAddTextToLayer={(layerIndex) => handleAddText(layerIndex)}
           />
