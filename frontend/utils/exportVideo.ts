@@ -104,6 +104,8 @@ export async function exportVideoWithFFmpeg(
     "-map", lastAudioOutput,
     "-c:v", "libx264",
     "-preset", "ultrafast", // Use ultrafast for web
+    "-crf", "28",           // Lower quality slightly for faster encoding
+    "-threads", "0",        // Use all available threads
     "-c:a", "aac",
     outputName
   ];
