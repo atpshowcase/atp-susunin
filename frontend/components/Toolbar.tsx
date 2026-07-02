@@ -7,6 +7,8 @@ interface ToolbarProps {
   onUploadClick: () => void;
   onExportClick: () => void;
   hasVideo: boolean;
+  exportResolution: string;
+  onExportResolutionChange: (res: string) => void;
 }
 
 export default function Toolbar({
@@ -14,6 +16,8 @@ export default function Toolbar({
   onUploadClick,
   onExportClick,
   hasVideo,
+  exportResolution,
+  onExportResolutionChange,
 }: ToolbarProps) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/50 bg-[#121214] px-4">
@@ -41,7 +45,19 @@ export default function Toolbar({
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {hasVideo && (
+          <select 
+            className="rounded bg-surface-2 px-2.5 py-1 text-[13px] text-text outline-none focus:ring-1 focus:ring-[#00F0FF] cursor-pointer"
+            value={exportResolution}
+            onChange={(e) => onExportResolutionChange(e.target.value)}
+          >
+            <option value="original">Asli (Original)</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+          </select>
+        )}
         <button
           onClick={onExportClick}
           disabled={!hasVideo}

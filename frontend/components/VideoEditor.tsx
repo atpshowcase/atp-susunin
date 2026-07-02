@@ -10,7 +10,7 @@ import LeftPanel from "./LeftPanel";
 import RightPropertiesPanel from "./RightPropertiesPanel";
 import { Clip, TextOverlay } from "@/lib/types";
 import { useHistory } from "./useHistory";
-import { exportVideoWithFFmpeg } from "@/utils/exportVideo";
+import { exportVideoWithGoBackend } from "@/utils/exportVideo";
 
 let clipIdCounter = 0;
 const nextClipId = () => `clip-${clipIdCounter++}`;
@@ -27,6 +27,7 @@ export default function VideoEditor() {
   const [originalDuration, setOriginalDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0); // This is now timeline time
   const [isPlaying, setIsPlaying] = useState(false);
+  const [exportResolution, setExportResolution] = useState("original");
   const {
     state: projectState,
     setWithHistory: setProjectState,
@@ -250,17 +251,17 @@ export default function VideoEditor() {
     if (!videoFile || !fileName || clips.length === 0) return;
     
     setIsExporting(true);
-    setExportProgress(0);
 
     const video = videoRef.current;
     const scaleFactor = video ? video.videoHeight / video.getBoundingClientRect().height : 1;
 
     try {
-      const exportedBlob = await exportVideoWithFFmpeg(
+      const exportedBlob = await exportVideoWithGoBackend(
         videoFile,
         clips,
         textOverlays,
         scaleFactor,
+        exportResolution,
         (progress) => setExportProgress(progress)
       );
       
@@ -274,14 +275,14 @@ export default function VideoEditor() {
       a.click();
       document.body.removeChild(a);
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Export failed");
+      alert(`Export failed: ${e.message}. Make sure the Go backend is running (docker-compose up)`);
     } finally {
       setIsExporting(false);
       setExportProgress(0);
     }
-  }, [videoFile, fileName, clips, textOverlays]);
+  }, [videoFile, fileName, clips, textOverlays, exportResolution]);
 
   const handleReorderClips = useCallback((startIndex: number, endIndex: number) => {
     setClips((prev) => {
@@ -383,6 +384,8 @@ export default function VideoEditor() {
         onUploadClick={() => fileInputRef.current?.click()}
         onExportClick={handleExport}
         hasVideo={!!videoUrl}
+        exportResolution={exportResolution}
+        onExportResolutionChange={setExportResolution}
       />
       <input
         type="file"
@@ -467,7 +470,7 @@ export default function VideoEditor() {
                 <div className="flex flex-col items-center gap-4">
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
                   <p className="text-[15px] font-medium text-text">Exporting video: {exportProgress.toFixed(0)}%</p>
-                  <p className="text-[13px] text-muted">Please wait, do not close the window.</p>
+                  <p className="text-[13px] text-muted">Processing via native FFmpeg, please wait.</p>
                 </div>
               </div>
             )}
