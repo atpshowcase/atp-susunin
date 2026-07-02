@@ -251,11 +251,12 @@ func processVideo(job *JobStatus, inputPath string, outputPath string, payload E
 	}
 
 	scanner := bufio.NewScanner(stderr)
+	scanner.Split(bufio.ScanWords)
 	timeRegex := regexp.MustCompile(`time=(\d{2}:\d{2}:\d{2}\.\d+)`)
 	
 	for scanner.Scan() {
-		line := scanner.Text()
-		matches := timeRegex.FindStringSubmatch(line)
+		word := scanner.Text()
+		matches := timeRegex.FindStringSubmatch(word)
 		if len(matches) > 1 {
 			currentTime := parseTime(matches[1])
 			if totalDuration > 0 {
