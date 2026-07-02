@@ -3,8 +3,11 @@
 import { Trash2 } from "lucide-react";
 import { MouseEvent, useMemo, useRef, useState, useEffect } from "react";
 import { Clip, TextOverlay, formatTimecode } from "@/lib/types";
+import AudioWaveform from "./AudioWaveform";
 
 interface TimelineProps {
+  videoUrl?: string;
+  originalDuration?: number;
   duration: number;
   currentTime: number;
   clips: Clip[];
@@ -38,6 +41,8 @@ function buildTicks(duration: number, zoomLevel: number) {
 }
 
 export default function Timeline({
+  videoUrl,
+  originalDuration = 0,
   duration,
   currentTime,
   clips,
@@ -245,7 +250,7 @@ export default function Timeline({
               className="relative flex flex-col gap-2 rounded-md bg-bg p-[3px] cursor-pointer"
             >
           {/* Video Track */}
-          <div className="relative flex h-16 items-stretch gap-[3px] rounded bg-surface-2 p-[2px]">
+          <div className="relative flex h-16 w-full rounded bg-surface-2 p-[2px] overflow-hidden">
             {clips.map((clip, index) => {
               const width = (clip.end - clip.start) * zoomLevel;
               const isSelected = clip.id === selectedClipId;
@@ -271,19 +276,23 @@ export default function Timeline({
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectClip(clip.id);
-                    if (currentTime < clip.start || currentTime >= clip.end) {
-                      onSeek(clip.start);
-                    }
                   }}
                   style={{ width: `${width}px`, flexShrink: 0 }}
-                  className={`group animate-clip-in relative flex min-w-[4px] items-center justify-center overflow-hidden rounded-[4px] border transition-colors ${
+                  className={`group animate-clip-in relative flex items-center justify-center overflow-hidden border-r border-y border-transparent transition-colors ${
                     isSelected
-                      ? "border-accent bg-accent-soft"
-                      : "border-transparent bg-surface-3 hover:bg-surface-4"
+                      ? "border-accent bg-accent-soft text-accent"
+                      : "border-transparent bg-surface-3/80 hover:bg-surface-4"
                   } ${draggedIdx === index ? "opacity-50" : ""}`}
                 >
+                  {videoUrl && originalDuration > 0 && (
+                    <div className="absolute inset-0 overflow-hidden opacity-50 z-0">
+                      <div style={{ position: 'absolute', left: `-${clip.start * zoomLevel}px`, width: `${originalDuration * zoomLevel}px`, height: '100%' }}>
+                         <AudioWaveform videoUrl={videoUrl} duration={originalDuration} zoomLevel={zoomLevel} height={60} />
+                      </div>
+                    </div>
+                  )}
                   <div
-                    className="absolute inset-0 opacity-[0.06]"
+                    className="absolute inset-0 opacity-[0.06] z-10 pointer-events-none"
                     style={{
                       backgroundImage:
                         "repeating-linear-gradient(90deg, #F2F1ED 0px, #F2F1ED 1px, transparent 1px, transparent 8px)",

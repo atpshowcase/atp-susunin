@@ -47,8 +47,19 @@ export async function exportVideoWithFFmpeg(
   });
 
   // Concatenate all trimmed clips
-  const concatInput = clipOutputs.join("");
-  filterGraph += `${concatInput}concat=n=${clips.length}:v=1:a=1[v_concat][a_concat]; `;
+  let lastVideoOutput = "";
+  let lastAudioOutput = "";
+
+  if (clips.length === 1) {
+    lastVideoOutput = clipOutputs[0];
+    lastAudioOutput = clipOutputs[1];
+  } else {
+    const concatInput = clipOutputs.join("");
+    filterGraph += `${concatInput}concat=n=${clips.length}:v=1:a=1[v_concat][a_concat]; `;
+    lastVideoOutput = "[v_concat]";
+    lastAudioOutput = "[a_concat]";
+  }
+
 
   // 2. Add text overlays
   // Since we don't have a reliable font file, we will use the default font.
@@ -63,8 +74,6 @@ export async function exportVideoWithFFmpeg(
   }
   await ffmpeg.writeFile(fontName, new Uint8Array(await fontData.arrayBuffer()));
 
-  let lastVideoOutput = "[v_concat]";
-  
   if (textOverlays.length === 0) {
     filterGraph += `${lastVideoOutput}copy[v_out]`; // Just pass through if no text
   } else {
@@ -92,7 +101,7 @@ export async function exportVideoWithFFmpeg(
     "-i", inputName,
     "-filter_complex", filterGraph,
     "-map", "[v_out]",
-    "-map", "[a_concat]",
+    "-map", lastAudioOutput,
     "-c:v", "libx264",
     "-preset", "ultrafast", // Use ultrafast for web
     "-c:a", "aac",

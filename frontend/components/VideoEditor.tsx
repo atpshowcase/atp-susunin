@@ -24,8 +24,8 @@ export default function VideoEditor() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [originalDuration, setOriginalDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0); // This is now timeline time
   const [isPlaying, setIsPlaying] = useState(false);
   const {
     state: projectState,
@@ -61,10 +61,43 @@ export default function VideoEditor() {
   const editorStateRef = useRef({ selectedTextId, textOverlays, selectedClipId });
   editorStateRef.current = { selectedTextId, textOverlays, selectedClipId };
 
+  const totalDuration = clips.reduce((acc, c) => acc + (c.end - c.start), 0);
+
+  const getOriginalTime = useCallback((tlTime: number) => {
+    let acc = 0;
+    for (const clip of clips) {
+      const dur = clip.end - clip.start;
+      if (tlTime >= acc && tlTime <= acc + dur) {
+        return clip.start + (tlTime - acc);
+      }
+      acc += dur;
+    }
+    const lastClip = clips[clips.length - 1];
+    return lastClip ? lastClip.end : 0;
+  }, [clips]);
+
+  const getTimelineTime = useCallback((origTime: number) => {
+    let acc = 0;
+    for (const clip of clips) {
+      if (origTime >= clip.start && origTime <= clip.end) {
+        return acc + (origTime - clip.start);
+      }
+      acc += (clip.end - clip.start);
+    }
+    let acc2 = 0;
+    let lastTlTime = 0;
+    for (const clip of clips) {
+      if (origTime < clip.start) return lastTlTime;
+      acc2 += (clip.end - clip.start);
+      lastTlTime = acc2;
+    }
+    return acc2;
+  }, [clips]);
+
   const handleAddText = useCallback((targetLayerIndex?: number) => {
     const durationOfNewText = 3;
     const newStart = currentTime;
-    const newEnd = Math.min(currentTime + durationOfNewText, duration || currentTime + durationOfNewText);
+    const newEnd = Math.min(currentTime + durationOfNewText, totalDuration || currentTime + durationOfNewText);
 
     let layerIndex = targetLayerIndex;
 
@@ -100,7 +133,7 @@ export default function VideoEditor() {
         layerIndex: layerIndex!,
       },
     ]);
-  }, [currentTime, duration, textLayerCount, textOverlays]);
+  }, [currentTime, totalDuration, textLayerCount, textOverlays]);
 
   const handleAddTextLayer = useCallback(() => {
     setTextLayerCount(prev => prev + 1);
@@ -126,7 +159,7 @@ export default function VideoEditor() {
     const video = videoRef.current;
     if (!video) return;
     const d = video.duration;
-    setDuration(d);
+    setOriginalDuration(d);
     const id = nextClipId();
     setClips([{ id, start: 0, end: d }]);
     setSelectedClipId(id);
@@ -135,7 +168,29 @@ export default function VideoEditor() {
   const handleTimeUpdate = () => {
     const video = videoRef.current;
     if (!video) return;
-    setCurrentTime(video.currentTime);
+    const origTime = video.currentTime;
+    
+    const isInside = clips.some(c => origTime >= c.start && origTime <= c.end);
+
+    if (!isInside && clips.length > 0) {
+      const nextClip = clips.find(c => c.start > origTime);
+      if (nextClip) {
+        video.currentTime = nextClip.start;
+        setCurrentTime(getTimelineTime(nextClip.start));
+        return;
+      } else {
+        const maxEnd = Math.max(...clips.map(c => c.end));
+        if (origTime > maxEnd) {
+           video.pause();
+           setIsPlaying(false);
+           video.currentTime = maxEnd;
+           setCurrentTime(totalDuration);
+           return;
+        }
+      }
+    }
+    
+    setCurrentTime(getTimelineTime(video.currentTime));
   };
 
   const togglePlay = useCallback(() => {
@@ -153,21 +208,22 @@ export default function VideoEditor() {
   const handleSeek = useCallback((time: number) => {
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = time;
+    const origTime = getOriginalTime(time);
+    video.currentTime = origTime;
     setCurrentTime(time);
-  }, []);
+  }, [getOriginalTime]);
 
   const handleSplit = useCallback(() => {
     setClips((prev) => {
-      const t = videoRef.current?.currentTime ?? currentTime;
+      const origTime = videoRef.current?.currentTime ?? getOriginalTime(currentTime);
       const targetIndex = prev.findIndex(
-        (c) => t > c.start + 0.05 && t < c.end - 0.05
+        (c) => origTime > c.start + 0.05 && origTime < c.end - 0.05
       );
       if (targetIndex === -1) return prev;
 
       const target = prev[targetIndex];
-      const left: Clip = { id: nextClipId(), start: target.start, end: t };
-      const right: Clip = { id: nextClipId(), start: t, end: target.end };
+      const left: Clip = { id: nextClipId(), start: target.start, end: origTime };
+      const right: Clip = { id: nextClipId(), start: origTime, end: target.end };
 
       const next = [...prev];
       next.splice(targetIndex, 1, left, right);
@@ -185,9 +241,10 @@ export default function VideoEditor() {
     });
   }, []);
 
-  const canSplit = clips.some(
-    (c) => currentTime > c.start + 0.05 && currentTime < c.end - 0.05
-  );
+  const canSplit = clips.some((c) => {
+    const origTime = videoRef.current?.currentTime ?? getOriginalTime(currentTime);
+    return origTime > c.start + 0.05 && origTime < c.end - 0.05;
+  });
 
   const handleExport = useCallback(async () => {
     if (!videoFile || !fileName || clips.length === 0) return;
@@ -348,7 +405,7 @@ export default function VideoEditor() {
                   isPlaying={isPlaying}
                   onTogglePlay={togglePlay}
                   currentTime={currentTime}
-                  duration={duration}
+                  duration={totalDuration}
                   canSplit={canSplit}
                   onSplit={handleSplit}
                   textOverlays={textOverlays}
@@ -382,7 +439,9 @@ export default function VideoEditor() {
             />
 
             <Timeline
-              duration={duration}
+              videoUrl={videoUrl}
+              originalDuration={originalDuration}
+              duration={totalDuration}
               currentTime={currentTime}
               clips={clips}
               selectedClipId={selectedClipId}
