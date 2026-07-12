@@ -9,13 +9,27 @@ import LeftSidebar from "./LeftSidebar";
 import LeftPanel from "./LeftPanel";
 import RightPropertiesPanel from "./RightPropertiesPanel";
 import { Clip, TextOverlay } from "@/lib/types";
-import { useHistory } from "./useHistory";
+import { useHistory } from "@/lib/application/useHistory";
 import { exportVideoWithGoBackend } from "@/utils/exportVideo";
+import {
+  ProjectState,
+  canSplitAtOriginalTime,
+  copyTextOverlayAtTime,
+  createExportFileName,
+  createTextOverlay,
+  deleteClip as deleteClipFromProject,
+  findAvailableTextLayer,
+  getOriginalTime as mapTimelineToOriginalTime,
+  getTimelineTime as mapOriginalToTimelineTime,
+  reorderByIndex,
+  splitClipAtOriginalTime,
+  totalClipDuration,
+  updateTextOverlay,
+} from "@/lib/domain/editor";
+import { createSequentialIdFactory } from "@/lib/application/idFactory";
 
-let clipIdCounter = 0;
-const nextClipId = () => `clip-${clipIdCounter++}`;
-let textIdCounter = 0;
-const nextTextId = () => `text-${textIdCounter++}`;
+const nextClipId = createSequentialIdFactory("clip");
+const nextTextId = createSequentialIdFactory("text");
 
 export default function VideoEditor() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -33,7 +47,7 @@ export default function VideoEditor() {
     setWithHistory: setProjectState,
     undo,
     redo
-  } = useHistory<{ clips: Clip[], textOverlays: TextOverlay[] }>({ clips: [], textOverlays: [] });
+  } = useHistory<ProjectState>({ clips: [], textOverlays: [] });
 
   const clips = projectState.clips;
   const textOverlays = projectState.textOverlays;
@@ -62,77 +76,30 @@ export default function VideoEditor() {
   const editorStateRef = useRef({ selectedTextId, textOverlays, selectedClipId });
   editorStateRef.current = { selectedTextId, textOverlays, selectedClipId };
 
-  const totalDuration = clips.reduce((acc, c) => acc + (c.end - c.start), 0);
+  const totalDuration = totalClipDuration(clips);
 
   const getOriginalTime = useCallback((tlTime: number) => {
-    let acc = 0;
-    for (const clip of clips) {
-      const dur = clip.end - clip.start;
-      if (tlTime >= acc && tlTime <= acc + dur) {
-        return clip.start + (tlTime - acc);
-      }
-      acc += dur;
-    }
-    const lastClip = clips[clips.length - 1];
-    return lastClip ? lastClip.end : 0;
+    return mapTimelineToOriginalTime(clips, tlTime);
   }, [clips]);
 
   const getTimelineTime = useCallback((origTime: number) => {
-    let acc = 0;
-    for (const clip of clips) {
-      if (origTime >= clip.start && origTime <= clip.end) {
-        return acc + (origTime - clip.start);
-      }
-      acc += (clip.end - clip.start);
-    }
-    let acc2 = 0;
-    let lastTlTime = 0;
-    for (const clip of clips) {
-      if (origTime < clip.start) return lastTlTime;
-      acc2 += (clip.end - clip.start);
-      lastTlTime = acc2;
-    }
-    return acc2;
+    return mapOriginalToTimelineTime(clips, origTime);
   }, [clips]);
 
   const handleAddText = useCallback((targetLayerIndex?: number) => {
-    const durationOfNewText = 3;
     const newStart = currentTime;
-    const newEnd = Math.min(currentTime + durationOfNewText, totalDuration || currentTime + durationOfNewText);
+    const newEnd = Math.min(currentTime + 3, totalDuration || currentTime + 3);
+    let layerIndex = targetLayerIndex ?? findAvailableTextLayer(textOverlays, textLayerCount, newStart, newEnd);
 
-    let layerIndex = targetLayerIndex;
-
-    if (layerIndex === undefined) {
-      // Find lowest layer without overlap
-      for (let i = 0; i < textLayerCount; i++) {
-        const layerTexts = textOverlays.filter(t => t.layerIndex === i);
-        const overlaps = layerTexts.some(t => Math.max(t.start, newStart) < Math.min(t.end, newEnd));
-        if (!overlaps) {
-          layerIndex = i;
-          break;
-        }
-      }
-      
-      // If all existing layers overlap, create a new one
-      if (layerIndex === undefined) {
-        layerIndex = textLayerCount;
-        setTextLayerCount(prev => prev + 1);
-      }
+    if (layerIndex === null) {
+      const newLayerIndex = textLayerCount;
+      layerIndex = newLayerIndex;
+      setTextLayerCount(prev => Math.max(prev, newLayerIndex + 1));
     }
 
     setTextOverlays((prev) => [
       ...prev,
-      {
-        id: nextTextId(),
-        content: "New Text",
-        x: 50,
-        y: 50,
-        color: "#ffffff",
-        fontSize: 48,
-        start: newStart,
-        end: newEnd,
-        layerIndex: layerIndex!,
-      },
+      createTextOverlay(nextTextId(), currentTime, totalDuration, layerIndex),
     ]);
   }, [currentTime, totalDuration, textLayerCount, textOverlays]);
 
@@ -217,35 +184,22 @@ export default function VideoEditor() {
   const handleSplit = useCallback(() => {
     setClips((prev) => {
       const origTime = videoRef.current?.currentTime ?? getOriginalTime(currentTime);
-      const targetIndex = prev.findIndex(
-        (c) => origTime > c.start + 0.05 && origTime < c.end - 0.05
-      );
-      if (targetIndex === -1) return prev;
-
-      const target = prev[targetIndex];
-      const left: Clip = { id: nextClipId(), start: target.start, end: origTime };
-      const right: Clip = { id: nextClipId(), start: origTime, end: target.end };
-
-      const next = [...prev];
-      next.splice(targetIndex, 1, left, right);
-      setSelectedClipId(right.id);
-      return next;
+      const result = splitClipAtOriginalTime(prev, origTime, nextClipId);
+      if (result.selectedClipId) setSelectedClipId(result.selectedClipId);
+      return result.clips;
     });
-  }, [currentTime]);
+  }, [currentTime, getOriginalTime]);
 
   const handleDeleteClip = useCallback((id: string) => {
     setClips((prev) => {
-      if (prev.length <= 1) return prev;
-      const next = prev.filter((c) => c.id !== id);
-      setSelectedClipId(next[0]?.id ?? null);
-      return next;
+      const result = deleteClipFromProject(prev, id);
+      if (result.selectedClipId !== null) setSelectedClipId(result.selectedClipId);
+      return result.clips;
     });
   }, []);
 
-  const canSplit = clips.some((c) => {
-    const origTime = videoRef.current?.currentTime ?? getOriginalTime(currentTime);
-    return origTime > c.start + 0.05 && origTime < c.end - 0.05;
-  });
+  const splitTime = videoRef.current?.currentTime ?? getOriginalTime(currentTime);
+  const canSplit = canSplitAtOriginalTime(clips, splitTime);
 
   const handleExport = useCallback(async () => {
     if (!videoFile || !fileName || clips.length === 0) return;
@@ -265,12 +219,9 @@ export default function VideoEditor() {
         (progress) => setExportProgress(progress)
       );
       
-      const totalDuration = clips.reduce((acc, clip) => acc + (clip.end - clip.start), 0);
-      const durationStr = totalDuration.toFixed(1);
-
       const a = document.createElement("a");
       a.href = URL.createObjectURL(exportedBlob);
-      a.download = `exported-${durationStr}s-${fileName.split('.')[0]}.mp4`;
+      a.download = createExportFileName(fileName, clips);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -286,16 +237,13 @@ export default function VideoEditor() {
 
   const handleReorderClips = useCallback((startIndex: number, endIndex: number) => {
     setClips((prev) => {
-      const next = [...prev];
-      const [removed] = next.splice(startIndex, 1);
-      next.splice(endIndex, 0, removed);
-      return next;
+      return reorderByIndex(prev, startIndex, endIndex);
     });
   }, []);
 
   const handleUpdateTextTiming = useCallback((id: string, start: number, end: number) => {
     setTextOverlays((prev) => 
-      prev.map(t => t.id === id ? { ...t, start, end } : t)
+      updateTextOverlay(prev, id, { start, end })
     );
   }, []);
 
@@ -303,7 +251,7 @@ export default function VideoEditor() {
     setTextOverlays((prev) => {
       const existing = prev.find(t => t.id === id);
       if (existing && existing.layerIndex !== layerIndex) {
-        return prev.map(t => t.id === id ? { ...t, layerIndex } : t);
+        return updateTextOverlay(prev, id, { layerIndex });
       }
       return prev;
     });
@@ -333,18 +281,7 @@ export default function VideoEditor() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (clipboardRef.current) {
           e.preventDefault();
-          const t = videoRef.current?.currentTime ?? 0;
-          const d = videoRef.current?.duration ?? 0;
-          const durationOfCopied = clipboardRef.current.end - clipboardRef.current.start;
-          const newStart = t;
-          const newEnd = Math.min(t + durationOfCopied, d || t + durationOfCopied);
-          
-          const newOverlay: TextOverlay = {
-            ...clipboardRef.current,
-            id: nextTextId(),
-            start: newStart,
-            end: newEnd,
-          };
+          const newOverlay = copyTextOverlayAtTime(clipboardRef.current, nextTextId(), currentTime, totalDuration);
           setTextOverlays(prev => [...prev, newOverlay]);
           setSelectedTextId(newOverlay.id);
         }
@@ -372,7 +309,7 @@ export default function VideoEditor() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [videoUrl, togglePlay, handleSplit, handleDeleteClip, undo, redo]);
+  }, [videoUrl, togglePlay, handleSplit, handleDeleteClip, currentTime, totalDuration, undo, redo]);
 
   const selectedText = textOverlays.find(t => t.id === selectedTextId);
   const selectedTextContent = selectedText?.content;
@@ -422,12 +359,12 @@ export default function VideoEditor() {
                 fontSize={selectedText?.fontSize}
                 onTextChange={(content) => {
                   if (selectedTextId) {
-                    setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, content } : t));
+                    setTextOverlays(prev => updateTextOverlay(prev, selectedTextId, { content }));
                   }
                 }}
                 onFontSizeChange={(fontSize) => {
                   if (selectedTextId) {
-                    setTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, fontSize } : t));
+                    setTextOverlays(prev => updateTextOverlay(prev, selectedTextId, { fontSize }));
                   }
                 }}
               />

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from "react";
 
 export function useHistory<T>(initialState: T) {
   const [state, setState] = useState<T>(initialState);
@@ -7,17 +7,15 @@ export function useHistory<T>(initialState: T) {
 
   const setWithHistory = useCallback((newStateOrUpdater: T | ((prev: T) => T)) => {
     setState((currentState) => {
-      const newState = typeof newStateOrUpdater === 'function' 
-        ? (newStateOrUpdater as (prev: T) => T)(currentState) 
-        : newStateOrUpdater;
+      const newState =
+        typeof newStateOrUpdater === "function"
+          ? (newStateOrUpdater as (prev: T) => T)(currentState)
+          : newStateOrUpdater;
 
-      // Only add to history if there is a real change (optional, but good practice)
-      // Note: In React, if state is technically deeply equal, you might want to skip, 
-      // but standard reference equality is usually fine.
       if (newState === currentState) return currentState;
 
       setPast((prevPast) => [...prevPast, currentState]);
-      setFuture([]); // Clear future on new action
+      setFuture([]);
       return newState;
     });
   }, []);
@@ -25,7 +23,7 @@ export function useHistory<T>(initialState: T) {
   const undo = useCallback(() => {
     setPast((prevPast) => {
       if (prevPast.length === 0) return prevPast;
-      
+
       const newPast = [...prevPast];
       const previousState = newPast.pop() as T;
 
@@ -68,6 +66,6 @@ export function useHistory<T>(initialState: T) {
     redo,
     canUndo: past.length > 0,
     canRedo: future.length > 0,
-    resetHistory
+    resetHistory,
   };
 }
