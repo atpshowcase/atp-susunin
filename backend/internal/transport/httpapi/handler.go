@@ -3,20 +3,27 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"backend/internal/application"
 	"backend/internal/domain"
 )
 
-type Handler struct {
-	exports *application.ExportService
-	jobs    application.JobStore
+type Config struct {
+	CORSAllowedOrigins []string
 }
 
-func NewHandler(exports *application.ExportService, jobs application.JobStore) *Handler {
+type Handler struct {
+	exports            *application.ExportService
+	jobs               application.JobStore
+	corsAllowedOrigins []string
+}
+
+func NewHandler(exports *application.ExportService, jobs application.JobStore, config Config) *Handler {
 	return &Handler{
-		exports: exports,
-		jobs:    jobs,
+		exports:            exports,
+		jobs:               jobs,
+		corsAllowedOrigins: config.CORSAllowedOrigins,
 	}
 }
 
@@ -85,7 +92,10 @@ func (handler *Handler) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 func (handler *Handler) withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin := handler.allowedOrigin(r.Header.Get("Origin")); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -96,6 +106,23 @@ func (handler *Handler) withCORS(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
+}
+
+func (handler *Handler) allowedOrigin(requestOrigin string) string {
+	if len(handler.corsAllowedOrigins) == 0 {
+		return ""
+	}
+
+	for _, allowedOrigin := range handler.corsAllowedOrigins {
+		if allowedOrigin == "*" {
+			return "*"
+		}
+		if strings.EqualFold(allowedOrigin, requestOrigin) {
+			return requestOrigin
+		}
+	}
+
+	return ""
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, value any) {

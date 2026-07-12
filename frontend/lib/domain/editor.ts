@@ -117,6 +117,28 @@ export function findAvailableTextLayer(
   return null;
 }
 
+export function resolveTextLayer(
+  textOverlays: TextOverlay[],
+  textLayerCount: number,
+  start: number,
+  end: number,
+  targetLayerIndex?: number
+): { layerIndex: number; textLayerCount: number } {
+  if (targetLayerIndex !== undefined) {
+    return {
+      layerIndex: targetLayerIndex,
+      textLayerCount: Math.max(textLayerCount, targetLayerIndex + 1),
+    };
+  }
+
+  const availableLayerIndex = findAvailableTextLayer(textOverlays, textLayerCount, start, end);
+  if (availableLayerIndex !== null) {
+    return { layerIndex: availableLayerIndex, textLayerCount };
+  }
+
+  return { layerIndex: textLayerCount, textLayerCount: textLayerCount + 1 };
+}
+
 export function createTextOverlay(
   id: string,
   currentTime: number,

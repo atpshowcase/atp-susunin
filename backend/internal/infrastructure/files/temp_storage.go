@@ -6,14 +6,20 @@ import (
 	"path/filepath"
 )
 
-type TempVideoStorage struct{}
+type Config struct {
+	BaseDir string
+}
 
-func NewTempVideoStorage() *TempVideoStorage {
-	return &TempVideoStorage{}
+type TempVideoStorage struct {
+	config Config
+}
+
+func NewTempVideoStorage(config Config) *TempVideoStorage {
+	return &TempVideoStorage{config: config}
 }
 
 func (storage *TempVideoStorage) SaveUploadedVideo(jobID string, filename string, source io.Reader) (string, string, error) {
-	tempDir, err := os.MkdirTemp("", "export-"+jobID)
+	tempDir, err := os.MkdirTemp(storage.config.BaseDir, "export-"+jobID)
 	if err != nil {
 		return "", "", err
 	}

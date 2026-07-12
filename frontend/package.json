@@ -1,12 +1,16 @@
 {
-  "name": "video-editor-frontend",
+  "name": "atp-susunin-frontend",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
+    "dev:staging": "node --env-file=.env.staging node_modules/next/dist/bin/next dev",
     "build": "next build",
+    "build:staging": "node --env-file=.env.staging node_modules/next/dist/bin/next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",

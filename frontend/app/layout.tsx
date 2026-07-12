@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Splice — Video Editor",
-  description: "A minimalist video editor.",
+  title: "ATP Susunin - Video Editor",
+  description: "A browser-based video editor backed by native FFmpeg exports.",
 };
 
 export default function RootLayout({

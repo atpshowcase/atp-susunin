@@ -15,6 +15,7 @@ COPY . .
 # Build the Go app
 RUN go build -o server main.go
 
-EXPOSE 8080
+ARG BACKEND_PORT=8080
+EXPOSE ${BACKEND_PORT}
 
 CMD ["./server"]

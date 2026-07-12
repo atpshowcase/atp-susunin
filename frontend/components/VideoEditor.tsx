@@ -10,7 +10,7 @@ import LeftPanel from "./LeftPanel";
 import RightPropertiesPanel from "./RightPropertiesPanel";
 import { Clip, TextOverlay } from "@/lib/types";
 import { useHistory } from "@/lib/application/useHistory";
-import { exportVideoWithGoBackend } from "@/utils/exportVideo";
+import { exportVideo } from "@/lib/application/exportVideo";
 import {
   ProjectState,
   canSplitAtOriginalTime,
@@ -18,10 +18,10 @@ import {
   createExportFileName,
   createTextOverlay,
   deleteClip as deleteClipFromProject,
-  findAvailableTextLayer,
   getOriginalTime as mapTimelineToOriginalTime,
   getTimelineTime as mapOriginalToTimelineTime,
   reorderByIndex,
+  resolveTextLayer,
   splitClipAtOriginalTime,
   totalClipDuration,
   updateTextOverlay,
@@ -87,19 +87,20 @@ export default function VideoEditor() {
   }, [clips]);
 
   const handleAddText = useCallback((targetLayerIndex?: number) => {
-    const newStart = currentTime;
-    const newEnd = Math.min(currentTime + 3, totalDuration || currentTime + 3);
-    let layerIndex = targetLayerIndex ?? findAvailableTextLayer(textOverlays, textLayerCount, newStart, newEnd);
+    const previewText = createTextOverlay("", currentTime, totalDuration, 0);
+    const textLayer = resolveTextLayer(
+      textOverlays,
+      textLayerCount,
+      previewText.start,
+      previewText.end,
+      targetLayerIndex
+    );
 
-    if (layerIndex === null) {
-      const newLayerIndex = textLayerCount;
-      layerIndex = newLayerIndex;
-      setTextLayerCount(prev => Math.max(prev, newLayerIndex + 1));
-    }
+    setTextLayerCount(textLayer.textLayerCount);
 
     setTextOverlays((prev) => [
       ...prev,
-      createTextOverlay(nextTextId(), currentTime, totalDuration, layerIndex),
+      createTextOverlay(nextTextId(), currentTime, totalDuration, textLayer.layerIndex),
     ]);
   }, [currentTime, totalDuration, textLayerCount, textOverlays]);
 
@@ -210,12 +211,14 @@ export default function VideoEditor() {
     const scaleFactor = video ? video.videoHeight / video.getBoundingClientRect().height : 1;
 
     try {
-      const exportedBlob = await exportVideoWithGoBackend(
-        videoFile,
-        clips,
-        textOverlays,
-        scaleFactor,
-        exportResolution,
+      const exportedBlob = await exportVideo(
+        {
+          videoFile,
+          clips,
+          textOverlays,
+          scaleFactor,
+          resolution: exportResolution,
+        },
         (progress) => setExportProgress(progress)
       );
       

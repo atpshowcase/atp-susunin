@@ -1,7 +1,7 @@
 import { Clip, TextOverlay } from "@/lib/types";
+import { getPublicConfig } from "@/lib/infrastructure/config";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_EXPORT_API_URL ?? "http://localhost:8085";
-const POLL_INTERVAL_MS = 500;
+const config = getPublicConfig();
 
 type ExportJobResponse = {
   jobId: string;
@@ -35,7 +35,7 @@ export async function startExportJob(request: ExportRequest): Promise<string> {
     })
   );
 
-  const response = await fetch(`${API_BASE_URL}/api/export`, {
+  const response = await fetch(`${config.exportApiUrl}/api/export`, {
     method: "POST",
     body: formData,
   });
@@ -49,7 +49,7 @@ export async function startExportJob(request: ExportRequest): Promise<string> {
 }
 
 export async function getExportStatus(jobId: string): Promise<ExportJobStatus> {
-  const response = await fetch(`${API_BASE_URL}/api/status?id=${jobId}`);
+  const response = await fetch(`${config.exportApiUrl}/api/status?id=${jobId}`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch status");
@@ -59,7 +59,7 @@ export async function getExportStatus(jobId: string): Promise<ExportJobStatus> {
 }
 
 export async function downloadExport(jobId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/api/download?id=${jobId}`);
+  const response = await fetch(`${config.exportApiUrl}/api/download?id=${jobId}`);
 
   if (!response.ok) {
     throw new Error("Failed to download file");
@@ -90,6 +90,6 @@ export function waitForExport(jobId: string, onProgress?: (progress: number) => 
         window.clearInterval(interval);
         reject(error);
       }
-    }, POLL_INTERVAL_MS);
+    }, config.exportPollIntervalMs);
   });
 }

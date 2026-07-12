@@ -15,7 +15,8 @@ import (
 )
 
 type Config struct {
-	FontPaths []string
+	BinaryPath string
+	FontPaths  []string
 }
 
 type Processor struct {
@@ -46,7 +47,7 @@ func (processor *Processor) Process(ctx context.Context, inputPath string, outpu
 		outputPath,
 	}
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, processor.binaryPath(), args...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
@@ -127,9 +128,9 @@ func (processor *Processor) applyTextOverlays(graph *strings.Builder, inputLabel
 		}
 
 		graph.WriteString(fmt.Sprintf(
-			"%sdrawtext=fontfile='%s':text='%s':fontcolor=0x%s:fontsize=%d:x=(w*%f/100)-(text_w/2):y=(h*%f/100)-(text_h/2):enable='between(t,%f,%f)'%s; ",
+			"%sdrawtext=%stext='%s':fontcolor=0x%s:fontsize=%d:x=(w*%f/100)-(text_w/2):y=(h*%f/100)-(text_h/2):enable='between(t,%f,%f)'%s; ",
 			lastVideoOutput,
-			fontPath,
+			fontFileOption(fontPath),
 			escapeDrawText(text.Content),
 			normalizeColor(text.Color),
 			scaledFontSize(text.FontSize, payload.ScaleFactor),
@@ -144,6 +145,13 @@ func (processor *Processor) applyTextOverlays(graph *strings.Builder, inputLabel
 	}
 
 	return lastVideoOutput
+}
+
+func fontFileOption(fontPath string) string {
+	if fontPath == "" {
+		return ""
+	}
+	return fmt.Sprintf("fontfile='%s':", fontPath)
 }
 
 func applyResolutionScale(graph *strings.Builder, inputLabel string, resolution string) string {
@@ -163,7 +171,14 @@ func (processor *Processor) resolveFontPath() string {
 			return path
 		}
 	}
-	return "./Roboto-Regular.ttf"
+	return ""
+}
+
+func (processor *Processor) binaryPath() string {
+	if processor.config.BinaryPath == "" {
+		return "ffmpeg"
+	}
+	return processor.config.BinaryPath
 }
 
 func escapeDrawText(value string) string {

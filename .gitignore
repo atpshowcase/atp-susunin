@@ -1,0 +1,15 @@
+.env
+.env.local
+.env.*.local
+
+backend/server
+backend/tmp
+
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/*.log
+frontend/tsconfig.tsbuildinfo
+
+.DS_Store
+Thumbs.db
